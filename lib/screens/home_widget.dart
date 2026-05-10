@@ -1,0 +1,942 @@
+import 'package:buttons_tabbar/buttons_tabbar.dart';
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_zoom_drawer/config.dart';
+import 'package:flutter_zoom_drawer/flutter_zoom_drawer.dart';
+import 'package:inatel_app_challenge/models/request.dart';
+import 'package:inatel_app_challenge/utils/reusable_functions.dart';
+import 'package:inatel_app_challenge/widgets/map_controls.dart';
+import 'package:provider/provider.dart';
+import 'package:sizer/sizer.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../core/core.dart';
+import '../helpers/dblogics.dart';
+import '../models/plan.dart';
+import 'package:geolocator/geolocator.dart';
+import '../models/installers.dart';
+
+import '../providers/permission_provider.dart';
+
+class Home extends StatefulWidget {
+  const Home({Key? key}) : super(key: key);
+
+  @override
+  State<Home> createState() => _HomeState();
+}
+
+class _HomeState extends State<Home> {
+  late GoogleMapController mapController;
+  late String _mapStyle;
+  late Position position;
+  final DataRepository repository = DataRepository();
+  final ZoomDrawerController _drawerController = ZoomDrawerController();
+
+  late Future<List<Plan>> plans;
+  late List<Installers> installers = [];
+  late Set<Marker> markes = {};
+  List<Installers> filtered = [];
+  NetPanel statePanel = NetPanel.toChose;
+  int selectedInstaller = -1;
+  late int planId;
+
+  Future<void> _onMapCreated(
+    GoogleMapController controller,
+    LatLng currentLocation,
+  ) async {
+    mapController = controller;
+    installers = await fetchInstallers("");
+    mapController.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(
+      target: currentLocation,
+      zoom: 16,
+    )));
+    // Config Marker
+    BitmapDescriptor customMarker = await BitmapDescriptor.asset(
+            const ImageConfiguration(size: Size(48, 48 * 2)),
+            "assets/style/Marker.png")
+        .then((value) => value);
+
+    Set<Marker> marksList = {};
+    for (var installer in installers) {
+      marksList.add(Marker(
+          markerId: MarkerId(installer.id.toString()),
+          position: installer.coordinates,
+          icon: customMarker));
+    }
+    setState(() {
+      markes = marksList;
+    });
+  }
+
+  Future<List<Plan>> getProjectDetails() async {
+    return fetchPlans("MG");
+  }
+
+  Future<List<Installers>> getInstallers() async {
+    return fetchInstallers("");
+  }
+
+  @override
+  initState() {
+    super.initState();
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      rootBundle.loadString('assets/style/mapStyle.json').then((string) {
+        _mapStyle = string;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        backgroundColor: const Color(0xFF0D1724),
+        body: ZoomDrawer(
+          controller: _drawerController,
+          openCurve: Curves.fastOutSlowIn,
+          style: DrawerStyle.defaultStyle,
+          showShadow: false,
+          slideWidth: 65.0.w,
+          angle: 0.0,
+          mainScreenTapClose: true,
+          disableDragGesture: true,
+          mainScreen: ChangeNotifierProvider<LocationProvider>(
+              create: (_) => LocationProvider(),
+              builder: (context, snapshot) {
+                final locationProvider = Provider.of<LocationProvider>(context);
+                if (locationProvider.status == LocationProviderStatus.Initial) {
+                  locationProvider.getLocation();
+                }
+                if (locationProvider.status == LocationProviderStatus.Error) {
+                  return Center(
+                    child: Text(
+                      "An Error Occurs",
+                      style: infoColPanel,
+                    ),
+                  );
+                } else if (locationProvider.status ==
+                        LocationProviderStatus.Loading ||
+                    locationProvider.status == LocationProviderStatus.Initial) {
+                  return SizedBox(
+                    width: double.maxFinite,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        Text(
+                          "Get Location",
+                          style: infoColPanel,
+                        ),
+                      ],
+                    ),
+                  );
+                } else {
+                  position = locationProvider.userLocation;
+                  final currentLocation = LatLng(
+                    position.latitude,
+                    position.longitude,
+                  );
+
+                  return FutureBuilder<List<Plan>>(
+                      future: getProjectDetails(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          // Handle Error
+                        }
+                        return snapshot.hasData
+                            ? Stack(
+                                children: [
+                                  GoogleMap(
+                                    onMapCreated: (controller) => _onMapCreated(
+                                      controller,
+                                      currentLocation,
+                                    ),
+                                    myLocationEnabled: true,
+                                    myLocationButtonEnabled: false,
+                                    zoomControlsEnabled: false,
+                                    markers: markes,
+                                    style: _mapStyle,
+                                    initialCameraPosition: CameraPosition(
+                                      target: currentLocation,
+                                      zoom: 16.0,
+                                    ),
+                                  ),
+                                  // Menu Button
+                                  Positioned(
+                                    top: 5.0.h,
+                                    left: 5.0.w,
+                                    child: MapFloatingButton(
+                                      width: 12.0.w,
+                                      height: 6.0.h,
+                                      icon: Icons.menu,
+                                      onPressed: () =>
+                                          _drawerController.open!(),
+                                    ),
+                                  ),
+                                  // Panel to Choose Net Provider
+                                  Visibility(
+                                    visible: statePanel == NetPanel.Chosing,
+                                    child: Positioned(
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: NetChoose(
+                                        plans: snapshot.data!,
+                                        onClose: (close) {
+                                          setState(() {
+                                            statePanel = NetPanel.toChose;
+                                          });
+                                        },
+                                        onSelect: (idPlan) async {
+                                          setState(() {
+                                            statePanel = NetPanel.Chosed;
+                                          });
+                                          // TODO Modify to Boost Perfomance
+                                          List<Installers> installers =
+                                              await fetchInstallers(
+                                                  idPlan.toString());
+                                          BitmapDescriptor customMarker =
+                                              await BitmapDescriptor.asset(
+                                                      const ImageConfiguration(
+                                                          size:
+                                                              Size(48, 48 * 2)),
+                                                      "assets/style/Marker.png")
+                                                  .then((value) => value);
+                                          Set<Marker> marksList = {};
+                                          for (var installer in installers) {
+                                            marksList.add(Marker(
+                                                markerId: MarkerId(
+                                                    installer.id.toString()),
+                                                position: installer.coordinates,
+                                                icon: customMarker));
+                                          }
+                                          setState(() {
+                                            filtered = installers;
+                                            markes = marksList;
+                                            planId = idPlan;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Select Net Button
+                                  Visibility(
+                                    visible: statePanel == NetPanel.toChose,
+                                    child: Positioned(
+                                      bottom: 5.0.h,
+                                      left: 10.0.w,
+                                      right: 10.0.w,
+                                      child: MapPrimaryButton(
+                                        label: "Request an Internet Plan",
+                                        icon: Icons.wifi,
+                                        height: 5.8.h,
+                                        textStyle: buttonBlack,
+                                        onPressed: () {
+                                          setState(() {
+                                            statePanel = NetPanel.Chosing;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Select Installer
+                                  Visibility(
+                                      visible: statePanel == NetPanel.Chosed &&
+                                          filtered.isNotEmpty,
+                                      child: Positioned(
+                                        bottom: 2.0.h,
+                                        left: 5.0.w,
+                                        right: 5.0.w,
+                                        child: Column(
+                                          children: [
+                                            Container(
+                                              height: 25.0.h,
+                                              width: 90.0.w,
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal: 4.0.w,
+                                                  vertical: 1.0.h),
+                                              decoration: const BoxDecoration(
+                                                  color: Colors.black,
+                                                  borderRadius:
+                                                      BorderRadius.all(
+                                                          Radius.circular(20))),
+                                              child: Column(
+                                                children: [
+                                                  RichText(
+                                                    textAlign: TextAlign.center,
+                                                    text: TextSpan(
+                                                        text:
+                                                            "${filtered.length} Found\n",
+                                                        style: titleExpPanel,
+                                                        children: [
+                                                          TextSpan(
+                                                              text:
+                                                                  "Select One",
+                                                              style:
+                                                                  dataExpPanel)
+                                                        ]),
+                                                  ),
+                                                  SizedBox(
+                                                    height: 2.0.h,
+                                                  ),
+                                                  Expanded(
+                                                    child: ListView.builder(
+                                                        itemCount:
+                                                            filtered.length,
+                                                        scrollDirection:
+                                                            Axis.horizontal,
+                                                        itemBuilder:
+                                                            (context, index) {
+                                                          return GestureDetector(
+                                                            onTap: () => {
+                                                              setState(() {
+                                                                selectedInstaller =
+                                                                    index;
+                                                              })
+                                                            },
+                                                            child: SizedBox(
+                                                              width: 30.0.w,
+                                                              child: Stack(
+                                                                alignment:
+                                                                    Alignment
+                                                                        .center,
+                                                                children: [
+                                                                  Positioned(
+                                                                    top: 0,
+                                                                    child:
+                                                                        Column(
+                                                                      children: [
+                                                                        Container(
+                                                                          height:
+                                                                              20.0.w,
+                                                                          width:
+                                                                              20.0.w,
+                                                                          decoration: BoxDecoration(
+                                                                              color: Colors.white.withValues(alpha: 0.15),
+                                                                              border: selectedInstaller == index ? Border.all(color: Colors.white) : Border.all(),
+                                                                              borderRadius: const BorderRadius.all(Radius.circular(10))),
+                                                                        ),
+                                                                        SizedBox(
+                                                                          height:
+                                                                              1.0.h,
+                                                                        ),
+                                                                        RichText(
+                                                                          textAlign:
+                                                                              TextAlign.center,
+                                                                          text: TextSpan(
+                                                                              text: "${filtered[index].name}\n",
+                                                                              style: infoColPanel,
+                                                                              children: [
+                                                                                TextSpan(text: "\$ ${calculatePrice(LatLng(position.latitude, position.longitude), filtered[index].coordinates, filtered[index].pricePerKm)}", style: price)
+                                                                              ]),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                  // Price Tag
+                                                                  Positioned(
+                                                                    top: 1.0.h,
+                                                                    right: 0,
+                                                                    child:
+                                                                        Container(
+                                                                      height:
+                                                                          6.0.w,
+                                                                      width:
+                                                                          14.0.w,
+                                                                      decoration: const BoxDecoration(
+                                                                          color: Colors.amber,
+                                                                          borderRadius: BorderRadius.all(
+                                                                            Radius.circular(5),
+                                                                          )),
+                                                                      child:
+                                                                          Row(
+                                                                        mainAxisAlignment:
+                                                                            MainAxisAlignment.center,
+                                                                        children: [
+                                                                          Text(
+                                                                            "${filtered[index].rating} ",
+                                                                            style:
+                                                                                rating,
+                                                                          ),
+                                                                          Icon(
+                                                                            Icons.star,
+                                                                            size:
+                                                                                4.0.w,
+                                                                            color:
+                                                                                Colors.white,
+                                                                          )
+                                                                        ],
+                                                                      ),
+                                                                    ),
+                                                                  )
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          );
+                                                        }),
+                                                  )
+                                                ],
+                                              ),
+                                            ),
+                                            SizedBox(
+                                              height: 2.0.h,
+                                            ),
+                                            Row(
+                                              children: [
+                                                TextButton(
+                                                    style: TextButton.styleFrom(
+                                                      foregroundColor:
+                                                          Colors.white,
+                                                      backgroundColor:
+                                                          Colors.red,
+                                                      disabledForegroundColor:
+                                                          Colors.grey,
+                                                      shape: const RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.all(
+                                                                  Radius
+                                                                      .circular(
+                                                                          10))),
+                                                    ),
+                                                    onPressed: () => {
+                                                          setState(() {
+                                                            statePanel =
+                                                                NetPanel
+                                                                    .toChose;
+                                                          })
+                                                        },
+                                                    child: SizedBox(
+                                                      height: 5.0.h,
+                                                      child: const Center(
+                                                        child:
+                                                            Icon(Icons.close),
+                                                      ),
+                                                    )),
+                                                SizedBox(
+                                                  width: 5.0.w,
+                                                ),
+                                                Expanded(
+                                                  child: TextButton(
+                                                      style:
+                                                          TextButton.styleFrom(
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                        backgroundColor:
+                                                            Colors.teal,
+                                                        disabledForegroundColor:
+                                                            Colors.grey,
+                                                        shape: const RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .all(Radius
+                                                                        .circular(
+                                                                            10))),
+                                                      ),
+                                                      onPressed: () async {
+                                                        Position pos = await Geolocator
+                                                            .getCurrentPosition(
+                                                                desiredAccuracy:
+                                                                    LocationAccuracy
+                                                                        .high);
+
+                                                        RequestInstaller req =
+                                                            RequestInstaller(
+                                                          planId: planId,
+                                                          installerId: filtered[
+                                                                  selectedInstaller]
+                                                              .id,
+                                                          userId: 1,
+                                                          lat: pos.latitude,
+                                                          lng: pos.longitude,
+                                                        );
+
+                                                        repository
+                                                            .addRequest(req);
+                                                        setState(() {
+                                                          statePanel =
+                                                              NetPanel.Send;
+                                                        });
+                                                      },
+                                                      child: SizedBox(
+                                                        height: 5.0.h,
+                                                        child: Center(
+                                                          child: Text(
+                                                            "Confirm",
+                                                            style: button,
+                                                          ),
+                                                        ),
+                                                      )),
+                                                )
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      )),
+
+                                  // Mensagem Erro ou Concluído
+                                  Visibility(
+                                    visible: statePanel == NetPanel.Send,
+                                    child: Positioned(
+                                      bottom: 2.0.h,
+                                      left: 5.0.w,
+                                      right: 5.0.w,
+                                      child: Container(
+                                        height: 25.0.h,
+                                        width: 90.0.w,
+                                        padding: EdgeInsets.symmetric(
+                                            horizontal: 4.0.w, vertical: 1.0.h),
+                                        decoration: const BoxDecoration(
+                                            color: Colors.black,
+                                            borderRadius: BorderRadius.all(
+                                                Radius.circular(20))),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.check_circle,
+                                              size: 5.0.h,
+                                              color: Colors.lightGreenAccent,
+                                            ),
+                                            RichText(
+                                              textAlign: TextAlign.center,
+                                              text: TextSpan(
+                                                  text: "Successful!\n",
+                                                  style: titleExpPanel,
+                                                  children: [
+                                                    TextSpan(
+                                                        text:
+                                                            "The request has been sent to the installer,\n we will notify you as soon as it accepts",
+                                                        style: dataExpPanel)
+                                                  ]),
+                                            )
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                ],
+                              )
+                            : SizedBox(
+                                width: double.maxFinite,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const CircularProgressIndicator(),
+                                    Text(
+                                      "Get Maps Info",
+                                      style: infoColPanel,
+                                    ),
+                                  ],
+                                ),
+                              );
+                      });
+                }
+              }),
+          menuScreen: Padding(
+            padding: EdgeInsets.only(left: 2.0.w, top: 12.0.h),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  alignment: const Alignment(-0.9, 0),
+                  child: Container(
+                    width: 25.0.w,
+                    height: 25.0.w,
+                    decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        shape: BoxShape.circle),
+                  ),
+                ),
+                SizedBox(
+                  height: 2.0.h,
+                ),
+                Align(
+                  alignment: const Alignment(-0.8, 0),
+                  child: Text(
+                    "Nome User",
+                    style: infoColPanel,
+                  ),
+                ),
+                SizedBox(
+                  height: 5.0.h,
+                ),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.house_alt_fill,
+                      ),
+                      SizedBox(
+                        width: 5.0.w,
+                      ),
+                      const Text(
+                        "Home",
+                      )
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.creditcard_fill,
+                      ),
+                      SizedBox(
+                        width: 5.0.w,
+                      ),
+                      const Text(
+                        "Payment",
+                      )
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.calendar,
+                      ),
+                      SizedBox(
+                        width: 5.0.w,
+                      ),
+                      const Text(
+                        "History",
+                      )
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.profile_circled,
+                      ),
+                      SizedBox(
+                        width: 5.0.w,
+                      ),
+                      const Text(
+                        "Profile",
+                      )
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {},
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.question,
+                      ),
+                      SizedBox(
+                        width: 5.0.w,
+                      ),
+                      const Text(
+                        "Help",
+                      )
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Align(
+                      alignment: const Alignment(-0.9, 0),
+                      child: TextButton(
+                        onPressed: () {},
+                        style: OutlinedButton.styleFrom(
+                            shape: const RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.all(Radius.circular(10)),
+                            ),
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white),
+                            padding: EdgeInsets.symmetric(horizontal: 5.0.w)),
+                        child: const Text(
+                          "Log Out",
+                        ),
+                      )),
+                ),
+              ],
+            ),
+          ),
+        ));
+  }
+}
+
+class NetChoose extends StatefulWidget {
+  final List<Plan> plans;
+  final Function(bool)? onClose;
+  final Function(int idPlan)? onSelect;
+  const NetChoose({Key? key, required this.plans, this.onClose, this.onSelect})
+      : super(key: key);
+
+  @override
+  State<NetChoose> createState() => _NetChoose();
+}
+
+class _NetChoose extends State<NetChoose> {
+  List<Map<String, List<Plan>>> plans = [];
+  int index = 0;
+  int indexPlan = 0;
+
+  @override
+  initState() {
+    super.initState();
+    Map<String, List<Plan>> planFormat = {};
+    for (var plan in widget.plans) {
+      if (planFormat.containsKey(plan.isp)) {
+        planFormat.update(plan.isp, (value) {
+          value.add(plan);
+          return value;
+        });
+      } else {
+        planFormat[plan.isp] = [plan];
+      }
+    }
+    planFormat.forEach((key, value) {
+      plans.add({key: value});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(left: 7.0.w, right: 7.0.w, top: 3.0.h),
+      decoration: const BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.only(
+              topRight: Radius.circular(25), topLeft: Radius.circular(25))),
+      height: 60.0.h,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(bottom: 3.0.h),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RichText(
+              text: TextSpan(
+                text: "Net Provider\n",
+                style: titleExpPanel,
+                /*
+                children: [
+                  TextSpan(
+                      text: "Tap to See More",
+                      style: hint
+                  )
+                ]*/
+              ),
+            ),
+            SizedBox(
+              height: 1.5.h,
+            ),
+            SizedBox(
+                height: 14.0.h,
+                width: double.maxFinite,
+                child: CarouselSlider.builder(
+                  //TODO Change According API
+                  itemCount: plans.length,
+                  itemBuilder: (context, index, pageIndex) {
+                    return Container(
+                      decoration: BoxDecoration(
+                          image: DecorationImage(
+                              fit: BoxFit.contain,
+                              image: AssetImage(
+                                  "assets/companies/${plans[index].keys.first}.png"))),
+                    );
+                  },
+                  options: CarouselOptions(
+                    autoPlay: false,
+                    enlargeCenterPage: true,
+                    viewportFraction: 1,
+                    onPageChanged: (ind, reason) {
+                      setState(() {
+                        indexPlan = 0;
+                        index = ind;
+                      });
+                    },
+                    //scrollPhysics: NeverScrollableScrollPhysics(),
+                    aspectRatio: 1.0,
+                  ),
+                )),
+            SizedBox(
+              height: 0.7.h,
+            ),
+            // Plan Widget
+            SizedBox(
+              height: 5.0.h,
+              child: Center(
+                child: DefaultTabController(
+                  //TODO Change Len according API
+                  length: plans[index].values.first.length,
+                  child: ButtonsTabBar(
+                    onTap: (ind) {
+                      setState(() {
+                        indexPlan = ind;
+                      });
+                    },
+                    backgroundColor: Colors.teal,
+                    unselectedBackgroundColor: const Color(0xFF2E3131),
+                    unselectedLabelStyle:
+                        const TextStyle(color: Color(0xFF7F8990)),
+                    tabs: List.generate(
+                        plans[index].values.first.length,
+                        (ind) => Tab(
+                              text:
+                                  "${plans[index].values.first[ind].data_capacity} GB",
+                            )),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 1.0.h,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  plans[index].keys.first,
+                  style: titleExpPanel,
+                ),
+                Text(
+                  "${plans[index].values.first[indexPlan].price} \$",
+                  style: titleExpPanel,
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 1.0.h,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Capacity",
+                  style: dataExpPanel,
+                ),
+                Text(
+                  "${plans[index].values.first[indexPlan].data_capacity} GB",
+                  style: dataExpPanel,
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 1.0.h,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Download Speed",
+                  style: dataExpPanel,
+                ),
+                Text(
+                  "${plans[index].values.first[indexPlan].download_speed} GB/s",
+                  style: dataExpPanel,
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 1.0.h,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Upload Speed",
+                  style: dataExpPanel,
+                ),
+                Text(
+                  "${plans[index].values.first[indexPlan].upload_speed} GB/s",
+                  style: dataExpPanel,
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 1.0.h,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Type",
+                  style: dataExpPanel,
+                ),
+                Text(
+                  plans[index].values.first[indexPlan].type_net,
+                  style: dataExpPanel,
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 1.5.h,
+            ),
+            Row(
+              children: [
+                TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.red,
+                      disabledForegroundColor: Colors.grey,
+                      shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.all(Radius.circular(10))),
+                    ),
+                    onPressed: () => widget.onClose!(true),
+                    child: SizedBox(
+                      height: 5.0.h,
+                      child: const Center(
+                        child: Icon(Icons.close),
+                      ),
+                    )),
+                SizedBox(
+                  width: 5.0.w,
+                ),
+                Expanded(
+                  child: TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.teal,
+                        disabledForegroundColor: Colors.grey,
+                        shape: const RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.all(Radius.circular(10))),
+                      ),
+                      onPressed: () => widget
+                          .onSelect!(plans[index].values.first[indexPlan].id),
+                      child: SizedBox(
+                        height: 5.0.h,
+                        child: Center(
+                          child: Text(
+                            "Choose",
+                            style: button,
+                          ),
+                        ),
+                      )),
+                )
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum NetPanel {
+  toChose,
+  Chosing,
+  Chosed,
+  Send,
+}
