@@ -94,7 +94,7 @@ Make sure Flutter is installed on your machine. If needed, follow the
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/guifnpaiva/inatel-app-challenge.git
+   git clone https://github.com/guifnpaiva/Inatel-App-Challenge.git
    ```
 
 2. Navigate to the project directory:
