@@ -7,12 +7,13 @@
 
 A Flutter mobile app prototype designed to make internet plan hiring easier.
 
-The project was created during APP Challenge, a mobile app development hackathon
-that was part of Inatel's Computer Science Week, held at the end of May. The
-event brought together 41 projects from Inatel students and collaborators and
-was organized in partnership with the multinational company
-[Viasat](https://www.viasat.com). The challenge was to create an app that could
-help users find and hire internet plans more easily.
+The project was created during **Inatel APP Challenge #2**, a time-boxed mobile app
+development hackathon held in 2022 as part of
+[Inatel](https://inatel.br/home/)'s Computer Science Week. The event brought
+together 41 projects from Inatel students and collaborators and was organized in
+partnership with the multinational company [Viasat](https://www.viasat.com).
+The challenge was to create an app, in a short amount of time, that could help
+users find and hire internet plans more easily.
 
 The app explores an Uber-like flow for internet installation: users compare
 available plans, choose an installer nearby, and send an installation request
@@ -65,15 +66,15 @@ This project was updated and tested with:
 
 ### App Flow
 
-| User Map | User Menu | Plan Selection |
-| :---: | :---: | :---: |
-| <img src="demo/user-map.PNG" width="220"/> | <img src="demo/user-menu.PNG" width="220"/> | <img src="demo/plan-selection.PNG" width="220"/> |
+| User Map | User Menu | Plan Selection | Installer Selection |
+| :---: | :---: | :---: |:---:|
+| <img src="demo/user-map.PNG" width="220"/> | <img src="demo/user-menu.PNG" width="220"/> | <img src="demo/plan-selection.PNG" width="220"/> | <img src="demo/installer-selection.PNG" width="220"/> |
 
-### Installer Flow
+### Installer & Route Flow
 
-| Installer Selection | Installer Map | Route Preview |
-| :---: | :---: | :---: |
-| <img src="demo/installer-selection.PNG" width="220"/> | <img src="demo/installer-map.PNG" width="220"/> | <img src="demo/installer-map-route.PNG" width="220"/> |
+| Installer Map | Route Preview |
+| :---: | :---: |
+| <img src="demo/installer-map.PNG" width="220"/> | <img src="demo/installer-map-route.PNG" width="220"/> |
 
 ### Demo
 
@@ -93,7 +94,7 @@ Make sure Flutter is installed on your machine. If needed, follow the
 1. Clone the repository:
 
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/guifnpaiva/inatel-app-challenge.git
    ```
 
 2. Navigate to the project directory:
